@@ -1,0 +1,110 @@
+import numpy as np
+from enum import Enum
+from typing import Callable
+import cv2 as cv
+
+
+def simple_greyscale(image: np.ndarray):
+    original_shape = image.shape
+    image = (image.reshape(-1, 3)
+             .mean(-1)
+             .astype(np.uint8)
+             .reshape(original_shape[0], original_shape[1]))
+    return cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+
+
+# Allows for user selected vector of weights
+# Binds pixel value to maximum of 255
+def weighted_greyscale(image: np.ndarray, weights: np.ndarray):
+    original_shape = image.shape
+    image = (image.reshape(-1, 3)
+             .dot(weights)
+             .astype(np.uint8)
+             .reshape(original_shape[0], original_shape[1]))
+    image = np.where(image < 255, image, 255)
+    return cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+
+
+def greyscale_from_channel(image: np.ndarray, channel: int):
+    original_shape = image.shape
+    image = image.reshape(-1, 3)[:, channel].reshape(original_shape[0], original_shape[1])
+    return cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+
+
+def filter_or(image: np.ndarray, color: np.ndarray):
+    return (image | color).astype(np.uint8)
+
+
+def negate(image):
+    return image ^ 255
+
+
+def binarize(image: np.ndarray, threshold: int):
+    image = simple_greyscale(image)
+    return np.where(image > threshold, image, 0)
+
+
+# def test_numpy():
+#     image = cv.imread("image.jpg")
+#     print(image)
+#     print(weighted_greyscale(image, np.array([1., 1., 1.])))
+
+
+class FilterParameterType(Enum):
+    NONE = 0
+    INT_VALUE = 1
+    BGR_VALUE = 2
+    BGR_FLOAT_VALUE = 3
+
+
+class ImageFilter:
+    def __init__(self,
+                 display_name: str,
+                 filter_id: int,
+                 filter_function: Callable,
+                 filter_parameter_type: FilterParameterType,
+                 filter_parameter_name: str = "",
+                 filter_parameter_value: int | np.ndarray = None,
+                 min_max_param_value: tuple = None):
+        self.display_name = display_name
+        self.filter_id = filter_id
+        self.filter_function = filter_function
+        self.filter_parameter_type = filter_parameter_type
+        self.filter_parameter_name = filter_parameter_name
+        self.filter_parameter_value = filter_parameter_value
+        self.min_max_param_value = min_max_param_value
+
+    def apply(self, image):
+        if self.filter_parameter_value is not None:
+            return self.filter_function(image, self.filter_parameter_value)
+        else:
+            return self.filter_function(image)
+
+    def update_parameter_value(self, value, index: int | None):
+        if (self.filter_parameter_type == FilterParameterType.BGR_VALUE or
+                self.filter_parameter_type == FilterParameterType.BGR_FLOAT_VALUE):
+            self.filter_parameter_value[index] = value
+        else:
+            self.filter_parameter_value = value
+
+    def __repr__(self):
+        return self.display_name
+
+    def __str__(self):
+        return self.display_name
+
+
+def get_image_filter_list():
+    # Filter_id must increase linearly in the same order as the filters
+    return [
+        ImageFilter("Simple Greyscale", 0, simple_greyscale, FilterParameterType.NONE),
+        ImageFilter("Weighted Greyscale", 1, weighted_greyscale, FilterParameterType.BGR_FLOAT_VALUE, "Weights", np.array([0.07, 0.71, 0.21]), (0.0, 1.0)),
+        ImageFilter("Greyscale from channel", 2, greyscale_from_channel, FilterParameterType.INT_VALUE, "Channel", 0, (0, 2)),
+        ImageFilter("OR Filter", 3, filter_or, FilterParameterType.BGR_VALUE, "Filter Color", np.array([255, 0, 255]), (0, 255)),
+        ImageFilter("Negate", 4, negate, FilterParameterType.NONE),
+        ImageFilter("Binarize", 5, binarize, FilterParameterType.INT_VALUE, "Threshold", 127, (0, 255))
+    ]
+
+
+def get_image_filter_dict():
+    return {filter_.display_name: filter_ for filter_ in get_image_filter_list()}
