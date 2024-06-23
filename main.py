@@ -1,6 +1,10 @@
 import sys
+import time
+
 import cv2 as cv
 from PyQt5 import QtWidgets, QtCore, QtGui
+import tkinter as tk
+from tkinter import filedialog
 from filters import *
 
 SCREEN_HEIGHT = 600
@@ -8,6 +12,8 @@ SCREEN_WIDTH = 800
 
 FILTER_COMPOSITION = 'Filter compostion: '
 NO_FILTERS_SELECTED = FILTER_COMPOSITION + 'no filters selected.'
+STOP_CAMERA_BUTTON_TEXT = 'Stop Camera'
+START_CAMERA_BUTTON_TEXT = 'Start Camera'
 
 SLIDER_FLOAT_SCALING_FACTOR = 500
 
@@ -16,7 +22,7 @@ class MainWindow(QtWidgets.QWidget):
     def __init__(self):
         super(MainWindow, self).__init__()
 
-        # Initializing QThread that deals with camera feed (also shows images)
+        # Initializing and starting QThread that deals with camera feed (also shows images)
         filter_list = get_image_filter_list()
         self.Worker = Worker(filter_list)
         self.Worker.start()
@@ -50,14 +56,19 @@ class MainWindow(QtWidgets.QWidget):
         self.main_vertical_layout.addWidget(self.filter_composition_label)
 
         # Adding "stop camera" button to main layout
-        self.stop_cam_button = QtWidgets.QPushButton('Stop Camera')
-        self.stop_cam_button.clicked.connect(self.cancel_feed)
-        self.main_vertical_layout.addWidget(self.stop_cam_button)
+        self.camera_button = QtWidgets.QPushButton('Stop Camera')
+        self.camera_button.clicked.connect(self.cancel_feed)
+        self.main_vertical_layout.addWidget(self.camera_button)
+
+        # Adding image selection button
+        self.select_image_button = QtWidgets.QPushButton('Select image')
+        self.select_image_button.clicked.connect(self.select_image_button_clicked)
+        self.main_vertical_layout.addWidget(self.select_image_button)
 
         # Finished configuration of main vertical layout
         self.main_horizontal_layout.addLayout(self.main_vertical_layout)
 
-        # TODO - Add all hidden filter parameter widgets
+        # Add all filter parameter widgets starting as hidden
         self.filter_widget_layouts = []
         # This list keeps track of which filter each widget is changing
         self.filter_parameter_widgets = []
@@ -169,7 +180,28 @@ class MainWindow(QtWidgets.QWidget):
 
     # Function called by "Stop Camera" button
     def cancel_feed(self):
-        self.Worker.stop()
+        self.Worker.using_camera = False
+        # Update button to restart camera
+        self.camera_button.setText(START_CAMERA_BUTTON_TEXT)
+        self.camera_button.clicked.connect(self.restart_feed)
+
+    def restart_feed(self):
+        self.Worker.using_camera = True
+        # Update button to stop camera
+        self.camera_button.setText(STOP_CAMERA_BUTTON_TEXT)
+        self.camera_button.clicked.connect(self.cancel_feed)
+
+    def select_image_button_clicked(self):
+        # Initializing QThread that opens the file selection dialog
+        self.file_selection_worker = FileDialogWorker()
+        self.file_selection_worker.fileSelected.connect(self.set_selected_image)
+        self.file_selection_worker.start()
+
+    def set_selected_image(self):
+        if self.file_selection_worker.file_path is not None:
+            self.Worker.picture = cv.imread(self.file_selection_worker.file_path)
+            self.cancel_feed()
+            self.file_selection_worker.stop()
 
 
 class Worker(QtCore.QThread):
@@ -180,12 +212,20 @@ class Worker(QtCore.QThread):
         self.ThreadActive = False
         self.available_filters = available_filters
         self.active_filters_in_order = []
+        self.picture: np.ndarray | None = None
+        self.camera = None
+        self.using_camera = True
 
+    # TODO - Improve this
     def run(self):
         self.ThreadActive = True
-        capture = cv.VideoCapture(0)
+        self.camera = cv.VideoCapture(0)
         while self.ThreadActive:
-            ret, frame = capture.read()
+            ret, frame = None, None
+            if self.using_camera:
+                ret, frame = self.camera.read()
+            elif isinstance(self.picture, np.ndarray):
+                ret, frame = True, self.picture.copy()
             if ret:
                 for active_filter in self.active_filters_in_order:
                     frame = active_filter.apply(frame)
@@ -193,7 +233,7 @@ class Worker(QtCore.QThread):
                 converted_and_scaled = (QtGui.QImage(frame_rgb.data, frame_rgb.shape[1], frame_rgb.shape[0], QtGui.QImage.Format_RGB888)
                                         .scaled(640, 480, QtCore.Qt.KeepAspectRatio))
                 self.ImageUpdate.emit(converted_and_scaled)
-        capture.release()
+        self.camera.release()
 
     def activate_or_deactivate_filter(self, param_filter_id):
         filter_index = None
@@ -214,6 +254,21 @@ class Worker(QtCore.QThread):
 
     def stop(self):
         self.ThreadActive = False
+        # self.quit()
+
+
+class FileDialogWorker(QtCore.QThread):
+    fileSelected = QtCore.pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.file_path = None
+
+    def run(self):
+        self.file_path = QtWidgets.QFileDialog.getOpenFileName()[0]
+        self.fileSelected.emit()
+
+    def stop(self):
         self.quit()
 
 
