@@ -41,13 +41,40 @@ def negate(image):
 
 def binarize(image: np.ndarray, threshold: int):
     image = simple_greyscale(image)
-    return np.where(image > threshold, image, 0)
+    return np.where(image > threshold, 255, 0).astype(np.uint8)
 
 
-# def test_numpy():
-#     image = cv.imread("image.jpg")
-#     print(image)
-#     print(weighted_greyscale(image, np.array([1., 1., 1.])))
+def blur(image: np.ndarray, size: np.ndarray):
+    return cv.blur(image, tuple(size))
+
+
+def gaussian_blur(image: np.ndarray, size: np.ndarray):
+    size = size - (size % 2 == 0)
+    return cv.GaussianBlur(image, tuple(size), 0)
+
+
+def canny(image: np.ndarray, thresholds: list):
+    image = cv.Canny(cv.cvtColor(image, cv.COLOR_BGR2GRAY), *thresholds)
+    return cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+
+
+def embossed_edges(image):
+    kernel = np.array([[0, -3, -3],
+                       [3, 0, -3],
+                       [3, 3, 0]])
+    img_emboss = cv.filter2D(image, -1, kernel=kernel)
+    return img_emboss
+
+
+def pencil_sketch(image):
+    return cv.cvtColor(cv.pencilSketch(image)[0], cv.COLOR_GRAY2BGR)
+
+
+def test_numpy():
+    print('comecou')
+    image = cv.imread("image.jpg")
+    print(image)
+    print(cv.pencilSketch(image)[0])
 
 
 class FilterParameterType(Enum):
@@ -55,6 +82,7 @@ class FilterParameterType(Enum):
     INT_VALUE = 1
     BGR_VALUE = 2
     BGR_FLOAT_VALUE = 3
+    INT_TUPLE_2 = 4
 
 
 class ImageFilter:
@@ -64,7 +92,7 @@ class ImageFilter:
                  filter_function: Callable,
                  filter_parameter_type: FilterParameterType,
                  filter_parameter_name: str = "",
-                 filter_parameter_value: int | np.ndarray = None,
+                 filter_parameter_value=None,
                  min_max_param_value: tuple = None):
         self.display_name = display_name
         self.filter_id = filter_id
@@ -81,11 +109,10 @@ class ImageFilter:
             return self.filter_function(image)
 
     def update_parameter_value(self, value, index: int | None):
-        if (self.filter_parameter_type == FilterParameterType.BGR_VALUE or
-                self.filter_parameter_type == FilterParameterType.BGR_FLOAT_VALUE):
-            self.filter_parameter_value[index] = value
-        else:
+        if self.filter_parameter_type == FilterParameterType.INT_VALUE:
             self.filter_parameter_value = value
+        else:
+            self.filter_parameter_value[index] = value
 
     def __repr__(self):
         return self.display_name
@@ -102,7 +129,12 @@ def get_image_filter_list():
         ImageFilter("Greyscale from channel", 2, greyscale_from_channel, FilterParameterType.INT_VALUE, "Channel", 0, (0, 2)),
         ImageFilter("OR Filter", 3, filter_or, FilterParameterType.BGR_VALUE, "Filter Color", np.array([255, 0, 255]), (0, 255)),
         ImageFilter("Negate", 4, negate, FilterParameterType.NONE),
-        ImageFilter("Binarize", 5, binarize, FilterParameterType.INT_VALUE, "Threshold", 127, (0, 255))
+        ImageFilter("Binarize", 5, binarize, FilterParameterType.INT_VALUE, "Threshold", 127, (0, 255)),
+        ImageFilter("Blur", 6, blur, FilterParameterType.INT_TUPLE_2, "Width / Height", np.array([15, 15]), (1, 200)),
+        ImageFilter("Canny", 7, canny, FilterParameterType.INT_TUPLE_2, "Lower Threshold / Upper Threshold", [50, 150], (1, 300)),
+        ImageFilter("Embossed Edges", 8, embossed_edges, FilterParameterType.NONE),
+        ImageFilter("Gaussian Blur", 9, gaussian_blur, FilterParameterType.INT_TUPLE_2, "Width / Height", np.array([15, 15]), (1, 200)),
+        ImageFilter("Pencil Sketch", 10, pencil_sketch, FilterParameterType.NONE)
     ]
 
 

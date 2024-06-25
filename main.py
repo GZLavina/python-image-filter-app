@@ -1,10 +1,7 @@
 import sys
 import time
 
-import cv2 as cv
 from PyQt5 import QtWidgets, QtCore, QtGui
-import tkinter as tk
-from tkinter import filedialog
 from filters import *
 
 SCREEN_HEIGHT = 600
@@ -72,6 +69,7 @@ class MainWindow(QtWidgets.QWidget):
         self.filter_widget_layouts = []
         # This list keeps track of which filter each widget is changing
         self.filter_parameter_widgets = []
+        # TODO - Improve this :(
         for index, filter_ in enumerate(filter_list):
             if filter_.filter_parameter_type == FilterParameterType.INT_VALUE:
                 self.filter_param_layout = self.add_filter_param_details(filter_)
@@ -105,6 +103,19 @@ class MainWindow(QtWidgets.QWidget):
                     slider_.setValue(int(filter_.filter_parameter_value[slider_index] * SLIDER_FLOAT_SCALING_FACTOR))
                     slider_.valueChanged.connect(self.filter_slider_changed)
                     self.set_slider_color(slider_, slider_index)
+                    self.filter_parameter_widgets.append(FilterParameterWidget(filter_, slider_, slider_index))
+                    self.sliders_layout.addWidget(slider_)
+                self.filter_param_layout.addLayout(self.sliders_layout)
+                self.finalize_filter_param_widget_setup(self.filter_param_layout, index)
+            elif filter_.filter_parameter_type == FilterParameterType.INT_TUPLE_2:
+                self.filter_param_layout = self.add_filter_param_details(filter_)
+                self.slider_list = [QtWidgets.QSlider(), QtWidgets.QSlider()]
+                self.sliders_layout = QtWidgets.QHBoxLayout()
+                for slider_index, slider_ in enumerate(self.slider_list):
+                    slider_.setRange(*filter_.min_max_param_value)
+                    slider_.setValue(filter_.filter_parameter_value[slider_index])
+                    slider_.valueChanged.connect(self.filter_slider_changed)
+                    self.set_slider_color(slider_, None)
                     self.filter_parameter_widgets.append(FilterParameterWidget(filter_, slider_, slider_index))
                     self.sliders_layout.addWidget(slider_)
                 self.filter_param_layout.addLayout(self.sliders_layout)
@@ -220,6 +231,7 @@ class Worker(QtCore.QThread):
     def run(self):
         self.ThreadActive = True
         self.camera = cv.VideoCapture(0)
+        count = 0
         while self.ThreadActive:
             ret, frame = None, None
             if self.using_camera:
