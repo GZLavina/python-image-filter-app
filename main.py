@@ -1,11 +1,16 @@
 import sys
-import time
 
 from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5.Qt import Qt
 from filters import *
+from overlays import *
 
 SCREEN_HEIGHT = 600
 SCREEN_WIDTH = 800
+
+IMAGE_HEIGHT = 480
+IMAGE_WIDTH = 640
+
 
 FILTER_COMPOSITION = 'Filter compostion: '
 NO_FILTERS_SELECTED = FILTER_COMPOSITION + 'no filters selected.'
@@ -61,6 +66,16 @@ class MainWindow(QtWidgets.QWidget):
         self.select_image_button = QtWidgets.QPushButton('Select image')
         self.select_image_button.clicked.connect(self.select_image_button_clicked)
         self.main_vertical_layout.addWidget(self.select_image_button)
+
+        # Adding sticker buttons
+        self.add_sticker_button = QtWidgets.QPushButton('Add Sticker')
+        self.add_sticker_button.clicked.connect(self.add_sticker_button_clicked)
+        self.main_vertical_layout.addWidget(self.add_sticker_button)
+        self.remove_sticker_button = QtWidgets.QPushButton('Remove Sticker')
+        self.remove_sticker_button.clicked.connect(self.remove_sticker_button_clicked)
+        self.remove_sticker_button.setHidden(True)
+        self.Worker.HideRemoveStickerButton.connect(self.hide_remove_sticker_button)
+        self.main_vertical_layout.addWidget(self.remove_sticker_button)
 
         # Finished configuration of main vertical layout
         self.main_horizontal_layout.addLayout(self.main_vertical_layout)
@@ -214,24 +229,57 @@ class MainWindow(QtWidgets.QWidget):
             self.cancel_feed()
             self.file_selection_worker.stop()
 
+    def add_sticker_button_clicked(self):
+        self.file_selection_worker = FileDialogWorker()
+        self.file_selection_worker.fileSelected.connect(self.set_selected_sticker)
+        self.file_selection_worker.start()
+
+    def set_selected_sticker(self):
+        if self.file_selection_worker.file_path is not None:
+            pic = cv.imread(self.file_selection_worker.file_path, cv.IMREAD_UNCHANGED)
+            pic = cv.resize(pic, (0, 0), fx=0.1, fy=0.1)
+            # (x, y) is where the top-left pixel of the sticker will go in the background image
+            # To start in the middle, we subtract the sticker's width and height from the background center
+            self.Worker.add_sticker(Sticker(pic, (IMAGE_WIDTH - pic.shape[1]) // 2, (IMAGE_HEIGHT - pic.shape[0]) // 2))
+            self.remove_sticker_button.setHidden(False)
+            self.file_selection_worker.stop()
+
+    def remove_sticker_button_clicked(self):
+        self.Worker.remove_sticker()
+
+    def hide_remove_sticker_button(self):
+        self.remove_sticker_button.setHidden(True)
+
+    def keyPressEvent(self, event):
+        if len(self.Worker.stickers) > 0:
+            if event.key() == Qt.Key_W:
+                self.Worker.stickers[-1].y -= 10
+            if event.key() == Qt.Key_A:
+                self.Worker.stickers[-1].x -= 10
+            if event.key() == Qt.Key_S:
+                self.Worker.stickers[-1].y += 10
+            if event.key() == Qt.Key_D:
+                self.Worker.stickers[-1].x += 10
+
 
 class Worker(QtCore.QThread):
     ImageUpdate = QtCore.pyqtSignal(QtGui.QImage)
+    HideRemoveStickerButton = QtCore.pyqtSignal()
 
     def __init__(self, available_filters: list):
         super().__init__()
         self.ThreadActive = False
         self.available_filters = available_filters
-        self.active_filters_in_order = []
+        self.active_filters_ = []
         self.picture: np.ndarray | None = None
         self.camera = None
         self.using_camera = True
+        self.stickers = []
 
     # TODO - Improve this
     def run(self):
         self.ThreadActive = True
         self.camera = cv.VideoCapture(0)
-        count = 0
         while self.ThreadActive:
             ret, frame = None, None
             if self.using_camera:
@@ -239,30 +287,41 @@ class Worker(QtCore.QThread):
             elif isinstance(self.picture, np.ndarray):
                 ret, frame = True, self.picture.copy()
             if ret:
-                for active_filter in self.active_filters_in_order:
+                for sticker in self.stickers:
+                    frame = overlay(frame, sticker.image, sticker.x, sticker.y)
+                for active_filter in self.active_filters_:
                     frame = active_filter.apply(frame)
                 frame_rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
                 converted_and_scaled = (QtGui.QImage(frame_rgb.data, frame_rgb.shape[1], frame_rgb.shape[0], QtGui.QImage.Format_RGB888)
-                                        .scaled(640, 480, QtCore.Qt.KeepAspectRatio))
+                                        .scaled(IMAGE_WIDTH, IMAGE_HEIGHT, QtCore.Qt.KeepAspectRatio))
                 self.ImageUpdate.emit(converted_and_scaled)
         self.camera.release()
 
     def activate_or_deactivate_filter(self, param_filter_id):
         filter_index = None
-        for index, active_filter in enumerate(self.active_filters_in_order):
+        for index, active_filter in enumerate(self.active_filters_):
             if active_filter.filter_id == param_filter_id:
                 filter_index = index
 
         if filter_index is not None:
-            self.active_filters_in_order.pop(filter_index)
+            self.active_filters_.pop(filter_index)
         else:
             # Add new filter at the end so that it will be processed last
-            self.active_filters_in_order.append(self.available_filters[param_filter_id])
+            self.active_filters_.append(self.available_filters[param_filter_id])
 
-        if len(self.active_filters_in_order) > 0:
-            return FILTER_COMPOSITION + ' > '.join([str(filter_) for filter_ in self.active_filters_in_order])
+        if len(self.active_filters_) > 0:
+            return FILTER_COMPOSITION + ' > '.join([str(filter_) for filter_ in self.active_filters_])
         else:
             return NO_FILTERS_SELECTED
+
+    def add_sticker(self, sticker: Sticker):
+        self.stickers.append(sticker)
+
+    def remove_sticker(self):
+        if len(self.stickers) > 0:
+            self.stickers.pop(0)
+        if len(self.stickers) == 0:
+            self.HideRemoveStickerButton.emit()
 
     def stop(self):
         self.ThreadActive = False
