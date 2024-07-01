@@ -70,16 +70,6 @@ def pencil_sketch(image):
     return cv.cvtColor(cv.pencilSketch(image)[0], cv.COLOR_GRAY2BGR)
 
 
-def test_numpy():
-    print('comecou')
-    # image = cv.imread("image.jpg")
-    # resized = cv.resize(image, (0, 0), fx=0.1, fy=0.1)
-    # sticker = cv.imread('sticker.png', cv.IMREAD_UNCHANGED)
-    # resized_sticker = cv.resize(sticker, (0, 0), fx=0.1, fy=0.1)
-    # cv.imshow('teste', overlay(resized, resized_sticker))
-    # cv.waitKey(0)
-
-
 class FilterParameterType(Enum):
     NONE = 0
     INT_VALUE = 1
